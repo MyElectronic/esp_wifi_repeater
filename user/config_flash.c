@@ -1,5 +1,6 @@
 #include "user_interface.h"
 #include "lwip/ip.h"
+#include "lwip/lwip_napt.h"
 #include "config_flash.h"
 
 
@@ -32,13 +33,14 @@ uint32_t reg0, reg1, reg3;
 	mac[0] = 0x18;
 	mac[1] = 0xfe;
 	mac[2] = 0x34;
-    } else 
+    } else
     if (((reg1 >> 16) & 0xff) == 1) {
 	mac[0] = 0xac;
 	mac[1] = 0xd0;
 	mac[2] = 0x74;
     } else {
 	os_printf("MAC read error\r\n");
+
     }
     mac[3] = (reg1 >> 8) & 0xff;
     mac[4] = reg1 & 0xff;
@@ -46,6 +48,7 @@ uint32_t reg0, reg1, reg3;
 
     //os_printf("%02x:%02x:%02x\r\n", reg0, reg1, reg3);
     //os_printf("STA: %02x:%02x:%02x:%02x:%02x:%02x\r\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    //os_printf("Config block: %d\r\n", sizeof(sysconfig_t));
 
     os_memcpy(config->STA_MAC_address, mac, 6);
     mac[0] |= 0x02;
@@ -63,7 +66,7 @@ uint32_t reg0, reg1, reg3;
     config->ap_on			= 1;
     config->ssid_hidden			= 0;
     config->max_clients			= MAX_CLIENTS;
-#ifdef WPA2_PEAP
+#if WPA2_PEAP
     config->use_PEAP			= 0;
     config->PEAP_identity[0]		= '\0';
     config->PEAP_username[0]		= '\0';
@@ -83,38 +86,43 @@ uint32_t reg0, reg1, reg3;
     config->am_sleep_time		= 0;
 
     config->nat_enable			= 1;
+    config->max_nat			    = IP_NAPT_MAX;
+    config->max_portmap	        = IP_PORTMAP_MAX;
+    config->tcp_timeout			= 0;  // use default
+    config->udp_timeout			= 0;  // use default
+
     IP4_ADDR(&config->network_addr, 192, 168, 4, 1);
     config->dns_addr.addr		= 0;  // use DHCP
-    config->my_addr.addr		= 0;  // use DHCP   
-    config->my_netmask.addr		= 0;  // use DHCP   
-    config->my_gw.addr			= 0;  // use DHCP   
-#ifdef PHY_MODE
+    config->my_addr.addr		= 0;  // use DHCP
+    config->my_netmask.addr		= 0;  // use DHCP
+    config->my_gw.addr			= 0;  // use DHCP
+#if PHY_MODE
     config->phy_mode			= 3;  // mode n
 #endif
     config->clock_speed			= 80;
-    config->status_led			= STATUS_LED_GIPO;
+    config->status_led			= STATUS_LED_GPIO;
     config->hw_reset			= FACTORY_RESET_PIN;
-#ifdef DAILY_LIMIT
+#if DAILY_LIMIT
     config->daily_limit			= 0;
     config->ntp_timezone		= 0;
 #endif
-#ifdef ALLOW_SLEEP
+#if ALLOW_SLEEP
     config->Vmin			= 0;
     config->Vmin_sleep			= 60;
 #endif
-#ifdef REMOTE_CONFIG
+#if REMOTE_CONFIG
     config->config_port			= CONSOLE_SERVER_PORT;
 #endif
-#ifdef WEB_CONFIG
+#if WEB_CONFIG
     config->web_port			= WEB_CONFIG_PORT;
 #endif
     config->config_access		= LOCAL_ACCESS | REMOTE_ACCESS;
-#ifdef TOKENBUCKET
+#if TOKENBUCKET
     config->kbps_ds			= 0;
     config->kbps_us			= 0;
 #endif
 
-#ifdef MQTT_CLIENT
+#if MQTT_CLIENT
     os_sprintf(config->mqtt_host,"%s", "none");
     config->mqtt_port			= 1883;
     os_sprintf(config->mqtt_user,"%s", "none");
@@ -123,29 +131,48 @@ uint32_t reg0, reg1, reg3;
     os_sprintf(config->mqtt_prefix,"%s/%s/system", MQTT_PREFIX, config->mqtt_id);
     os_sprintf(config->mqtt_command_topic,"%s/%s/%s", MQTT_PREFIX, config->mqtt_id, "command");
     os_sprintf(config->mqtt_gpio_out_topic,"%s/%s/%s", MQTT_PREFIX, config->mqtt_id, "switch");
+    config->mqtt_qos            = 0;
     config->gpio_out_status		= 0;
     config->mqtt_interval		= MQTT_REPORT_INTERVAL;
     config->mqtt_topic_mask		= 0xffff;
 #endif
 
-#ifdef HAVE_ENC28J60
+#if HAVE_ENC28J60
     mac[0] ^= 0x04;
     os_memcpy(config->ETH_MAC_address, mac, 6);
-    config->eth_addr.addr		= 0;  // use DHCP   
-    config->eth_netmask.addr		= 0;  // use DHCP   
+#if DCHPSERVER_ENC28J60
+    IP4_ADDR(&config->eth_addr, 192, 168, 5, 1);
+    IP4_ADDR(&config->eth_netmask, 255, 255, 255, 0);
+    config->eth_gw.addr			= 0;  // Just use ARP
+    config->eth_enable			= 0;  // 0 = off
+    config->enc_DHCPserver              = 0;
+#else
+    //config->eth_addr.addr		= 0;  // use DHCP
+    //config->eth_netmask.addr		= 0;  // use DHCP
     config->eth_gw.addr			= 0;  // use DHCP
-    config->eth_enable			= 0;  // off
+    config->eth_enable			= 0;  // 0 = off
+#endif
+
 #endif
 
     config->no_routes			= 0;
 
     config->dhcps_entries		= 0;
-#ifdef ACLS
+#if ACLS
     acl_init();	// initializes the ACLs, written in config during save
 #endif
-#ifdef OTAUPDATE
+#if OTAUPDATE
     os_sprintf(config->ota_host,"%s", "none");
     config->ota_port			= 80;
+#endif
+#if GPIO_CMDS
+    int i;
+    for (i=0; i<17; i++)
+    {
+        config->gpiomode[i] = UNDEFINED;
+        config->gpio_trigger_pin[i] = -1;
+        config->gpio_trigger_type[i] = NONE;
+    }
 #endif
 }
 
@@ -163,12 +190,13 @@ int ICACHE_FLASH_ATTR config_load(sysconfig_p config)
         config_save(config);
         return -1;
     }
-
-    os_printf("\r\nConfig found and loaded\r\n");
     spi_flash_read(base_address * SPI_FLASH_SEC_SIZE, (uint32 *) config, sizeof(sysconfig_t));
+
+    os_printf("\r\nConfig found and loaded (%d Bytes)\r\n", config->length);
+
     if (config->length != sizeof(sysconfig_t))
     {
-        os_printf("Length Mismatch, probably old version of config, loading defaults\r\n");
+        os_printf("Length Mismatch (should be %d), probably old version of config, loading defaults\r\n", sizeof(sysconfig_t));
         config_load_default(config);
         config_save(config);
 	return -1;
@@ -177,7 +205,7 @@ int ICACHE_FLASH_ATTR config_load(sysconfig_p config)
     ip_route_max = config->no_routes;
     os_memcpy(ip_rt_table, config->rt_table, sizeof(ip_rt_table));
 
-#ifdef ACLS
+#if ACLS
     os_memcpy(&acl, &(config->acl), sizeof(acl));
     os_memcpy(&acl_freep, &(config->acl_freep), sizeof(acl_freep));
 #endif
@@ -190,7 +218,7 @@ void ICACHE_FLASH_ATTR config_save(sysconfig_p config)
     config->no_routes = ip_route_max;
     os_memcpy(config->rt_table, ip_rt_table, sizeof(ip_rt_table));
 
-#ifdef ACLS
+#if ACLS
     os_memcpy(&(config->acl), &acl, sizeof(acl));
     os_memcpy(&(config->acl_freep), &acl_freep, sizeof(acl_freep));
 #endif
@@ -240,7 +268,7 @@ void user_rf_pre_init() {
   //os_printf("\nUser preinit: ");
    switch (size_map) {
       case FLASH_SIZE_4M_MAP_256_256:
-         rf_cal_sec = 128 - 5;     
+         rf_cal_sec = 128 - 5;
          break;
 
       case FLASH_SIZE_8M_MAP_512_512:
@@ -266,15 +294,15 @@ void user_rf_pre_init() {
   spi_flash_read(addr, (uint32_t *)esp_init_data_current, sizeof(esp_init_data_current));
 
   for (i=0; i<sizeof(esp_init_data_default); i++) {
-    
-    if (esp_init_data_current[i] != esp_init_data_default[i]) {     
+
+    if (esp_init_data_current[i] != esp_init_data_default[i]) {
       spi_flash_erase_sector(rf_cal_sec);
       spi_flash_erase_sector(rf_cal_sec+1);
       spi_flash_erase_sector(rf_cal_sec+2);
       addr = ((rf_cal_sec) * SPI_FLASH_SEC_SIZE)+SPI_FLASH_SEC_SIZE;
       os_printf("Storing rfcal init data @ address=0x%08X\n", addr);
       spi_flash_write(addr, (uint32 *)esp_init_data_default, sizeof(esp_init_data_default));
-     
+
       break;
     }
 /* else {
@@ -282,3 +310,81 @@ void user_rf_pre_init() {
     }*/
   }
 }
+/*
+// user_pre_init is required from SDK v3.0.0 onwards
+// It is used to register the parition map with the SDK, primarily to allow
+// the app to use the SDK's OTA capability.  We don't make use of that in 
+// otb-iot and therefore the only info we provide is the mandatory stuff:
+// - RF calibration data
+// - Physical data
+// - System parameter
+// The location and length of these are from the 2A SDK getting started guide
+void ICACHE_FLASH_ATTR user_pre_init(void)
+{
+  bool rc = false;
+  static const partition_item_t part_table[] = 
+  {
+    {SYSTEM_PARTITION_RF_CAL,
+     0x3fb000,
+     0x1000},
+    {SYSTEM_PARTITION_PHY_DATA,
+     0x3fc000,
+     0x1000},
+    {SYSTEM_PARTITION_SYSTEM_PARAMETER,
+     0x3fd000,
+     0x3000},
+  };
+/*
+  enum flash_size_map size_map = system_get_flash_size_map();
+  uint32 rf_cal_sec = 0, addr, i;
+  //os_printf("\nUser preinit: ");
+   switch (size_map) {
+      case FLASH_SIZE_4M_MAP_256_256:
+         rf_cal_sec = 128 - 5;
+         break;
+
+      case FLASH_SIZE_8M_MAP_512_512:
+         rf_cal_sec = 256 - 5;
+         break;
+
+      case FLASH_SIZE_16M_MAP_512_512:
+      case FLASH_SIZE_16M_MAP_1024_1024:
+         rf_cal_sec = 512 - 5;
+         break;
+
+      case FLASH_SIZE_32M_MAP_512_512:
+      case FLASH_SIZE_32M_MAP_1024_1024:
+         rf_cal_sec = 1024 - 5;
+         break;
+
+      default:
+         rf_cal_sec = 0;
+         break;
+   }
+
+    static const partition_item_t part_table[] = 
+    {
+        {SYSTEM_PARTITION_RF_CAL,
+        rf_cal_sec * 0x1000,
+        0x1000},
+        {SYSTEM_PARTITION_PHY_DATA,
+        (rf_cal_sec + 1) * 0x1000,
+        0x1000},
+        {SYSTEM_PARTITION_SYSTEM_PARAMETER,
+        (rf_cal_sec + 2) * 0x1000,
+        0x3000},
+    };
+
+  // This isn't an ideal approach but there's not much point moving on unless
+  // or until this has succeeded cos otherwise the SDK will just barf and 
+  // refuse to call user_init()
+  while (!rc)
+  {
+    rc = system_partition_table_regist(part_table,
+				       sizeof(part_table)/sizeof(part_table[0]),
+                                       4);
+  }
+
+  return;
+}
+*/

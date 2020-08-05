@@ -1,15 +1,14 @@
 #include <lwip/netif.h>
 #include <netif/etharp.h>
 
+#define ENC_SW_INTERRUPT 1
+
 err_t enc28j60_link_output(struct netif *netif, struct pbuf *p);
 err_t enc28j60_init(struct netif *netif);
-struct netif* espenc_init(uint8_t *mac_addr, ip_addr_t *ip, ip_addr_t *mask, ip_addr_t *gw, bool dhcp, netif_status_callback_fn cb);
-void enc28j60_poll();
+struct netif* espenc_init(uint8_t *mac_addr, ip_addr_t *ip, ip_addr_t *mask, ip_addr_t *gw, bool dhcp);
 
-//#define log(s, ...)
-#define log(s, ...) os_printf ("[%s:%s:%d] " s "\n", __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
-#define debug_log(s, ...) 
-//#define debug_log(s, ...) os_printf ("[%s:%s:%d] " s "\n", __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
+#define log(s, ...)
+//#define log(s, ...) os_printf ("[%s:%s:%d] " s "\n", __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
 
 #define ESP_CS 15
 #define ESP_INT 5
@@ -229,7 +228,7 @@ void enc28j60_poll();
 
 // max frame length which the controller will accept:
 // (note: maximum ethernet frame length would be 1518)
-#define MAX_FRAMELEN      1500
+#define MAX_FRAMELEN      1518
 
 #define FULL_SPEED  1   // switch to full-speed SPI for bulk transfers
 
@@ -239,7 +238,7 @@ void enc28j60_poll();
 
 #define RXSTART_INIT        0x0000  // start of RX buffer, (must be zero, Rev. B4 Errata point 5)
 #define RXSTOP_INIT         0x0BFF  // end of RX buffer, room for 2 packets
- 
+
 #define TXSTART_INIT        0x0C00  // start of TX buffer, room for 1 packet
 #define TXSTOP_INIT         0x11FF  // end of TX buffer
 
@@ -254,3 +253,4 @@ void enc28j60_poll();
 // to use this functionality
 #define ENC_HEAP_START      SCRATCH_LIMIT
 #define ENC_HEAP_END        0x2000
+
